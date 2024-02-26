@@ -1,0 +1,103 @@
+#!/bin/bash
+
+# Fonctions pour les couleurs
+
+color_reset='\e[0m'        # Réinitialisation de la couleur
+color_yellow='\e[1;33m'    # Texte jaune en gras
+color_cyan='\e[1;36m'      # Texte cyan en gras
+color_red='\e[1;31m'       # Texte rouge en gras
+
+#!/bin/bash
+
+# Définir les variables
+WG_IPV4_ADDR="10.6.0.1"
+WG_IPV4_NETMASK="24"
+WG_PORT="51820"
+WG_DNS1="1.1.1.1"
+WG_DNS2="8.8.8.8"
+
+# Créer le fichier options.conf
+cat <<EOL > options.conf
+# options.conf for WireGuard
+WG_IPV4_ADDR=$WG_IPV4_ADDR
+WG_IPV4_NETMASK=$WG_IPV4_NETMASK
+WG_PORT=$WG_PORT
+WG_DNS1=$WG_DNS1
+WG_DNS2=$WG_DNS2
+EOL
+
+echo -e "${color_cyan}Le fichier options.conf a été créé avec succès.${color_reset}"
+
+# Get the IP address of eth0 using ifconfig
+
+ip_prive=$(ifconfig eth0 | awk '/inet / {print $2}' | cut -d':' -f2)
+
+# Vérifiez si l'adresse IP n'est pas vide
+
+if [ -n "$ip_prive" ]; then
+    echo "IP adresse de eth0 est: $ip_prive"
+else
+    echo "Impossible de récupérer l'adresse IP de eth0"
+fi
+
+sleep 3
+# Mise à jour de votre Raspberry Pi
+release_file=/etc/os-relase
+
+if grep -q "Debian" $release_file
+then
+    sudo apt -y update
+    sudo apt -y upgrade
+fi
+
+# Installation de Docker
+
+echo -e "${color_yellow}Installation de Docker sur votre Raspberry Pi${Color_reset}"
+sudo apt update
+sudo apt -y install apt-transport-https ca-certificates curl gnupg2 software-properties-common
+curl -fsSL https://download.docker.com/linux/debian/gpg | sudo apt-key add -
+sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable"
+sudo apt update
+apt-cache policy docker-ce
+sudo apt install docker-ce
+sudo usermod -aG docker $(whoami)
+
+
+# Installation de Pi_VPN WireGuard
+
+curl -L https://install.pivpn.io > install.sh
+chmod +x install.sh
+./install.sh --unattended options.conf
+
+# Rechercher des erreurs dans l'installation de Docker
+
+if [ $? -ne 0 ]; then
+    echo -e "${color_yellow}Erreur : l'installation de Docker a échoué${color_reset}"
+    exit 1
+fi
+
+# Installation de WireGuard + UI
+
+echo -e "${color_yellow}Configuration du tunnel VPN WireGuard${color_reset}"
+
+sleep 2
+
+echo -e "${color_cyan}Vos identifiants sont votre Utilisateur et Mot de passe pour se connecter au Raspberry Pi${color_reset}"
+
+
+docker run -d \
+  --name=pivpn-web \
+  -e WG_HOST=$ip_prive \
+  -e PASSWORD=$password \
+  -v ~/.pivpn-web:/etc/wireguard \
+  -p 51821:51821/tcp \
+  --cap-add=NET_ADMIN \
+  --cap-add=SYS_MODULE \
+  --sysctl="net.ipv4.conf.all.src_valid_mark=1" \
+  --sysctl="net.ipv4.ip_forward=1" \
+  --restart unless-stopped \
+  weejewel/pivpn-web
+
+  echo -e "${color_yellow}L'installation de votre tunnel VPN WireGuard est terminée${color_reset}"
+  echo -e "${color_cyan}L'interface utilisateur Web sera désormais disponible sur http://$ip_prive:51821${color_reset}"
+  
